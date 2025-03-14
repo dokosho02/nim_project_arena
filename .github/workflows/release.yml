@@ -117,17 +117,14 @@ jobs:
           upload_url=${{ steps.create_release.outputs.upload_url }}
           for target in linux windows macosx-x86_64 macosx-aarch64; do
             if [ "$target" == "windows" ]; then
-              asset_path="artifacts/nim_project_arena-$target/nim_project_arena.exe"
+              ext=".exe"
             else
-              asset_path="artifacts/nim_project_arena-$target/nim_project_arena"
+              ext=""
             fi
 
+            asset_path="artifacts/${{ env.PROJECT_NAME }}-$target/${{ env.PROJECT_NAME }}-$target$ext"
             if [ -f "$asset_path" ]; then
-              asset_name="nim_project_arena-${{ steps.extract_version.outputs.version }}-${{ steps.get_date.outputs.date }}-$target"
-              if [ "$target" == "windows" ]; then
-                asset_name="$asset_name.exe"
-              fi
-
+              asset_name="${{ env.PROJECT_NAME }}-${{ steps.extract_version.outputs.version }}-${{ steps.get_date.outputs.date }}-$target$ext"
               echo "Uploading $asset_path as $asset_name"
               curl -s -X POST \
                 -H "Authorization: token $GITHUB_TOKEN" \
