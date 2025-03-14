@@ -35,17 +35,28 @@ jobs:
         with:
           nim-version: "2.0.0" # 指定 Nim 版本
 
+      - name: Install Zig (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install zig
+
       - name: Build the project
         shell: bash
         run: |
-          # 针对 macOS 区分架构
           if [[ "${{ matrix.target }}" == "macosx-x86_64" ]]; then
-            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:amd64 src/${{ env.PROJECT_NAME }}.nim
+            # 使用 Zig 交叉编译为 Intel macOS
+            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:amd64 --passC:"--target=x86_64-macos" --passL:"--target=x86_64-macos" src/${{ env.PROJECT_NAME }}.nim
           elif [[ "${{ matrix.target }}" == "macosx-aarch64" ]]; then
-            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:arm64 src/${{ env.PROJECT_NAME }}.nim
+            # 使用 Zig 交叉编译为 Apple Silicon macOS
+            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:arm64 --passC:"--target=aarch64-macos" --passL:"--target=aarch64-macos" src/${{ env.PROJECT_NAME }}.nim
           else
+            # 其他平台（Linux/Windows）
             nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release src/${{ env.PROJECT_NAME }}.nim
           fi
+
+      - name: Verify binary architecture
+        run: |
+          file bin/${{ env.PROJECT_NAME }}${{ matrix.ext }}
 
       - name: Package the binary
         shell: bash
