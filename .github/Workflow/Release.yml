@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*" # Push tags matching 'v*', e.g., v1.0.0
+
+env:
+  PROJECT_NAME: nim_project_arena # 定义项目名称变量
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            ext: ""
+          - os: windows-latest
+            target: windows
+            ext: ".exe"
+          - os: macos-latest
+            target: macosx-x86_64 # Intel macOS
+            ext: ""
+          - os: macos-latest
+            target: macosx-aarch64 # Apple Silicon macOS
+            ext: ""
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: "2.0.0" # 指定 Nim 版本
+
+      - name: Build the project
+        run: |
+          # 针对 macOS 区分架构
+          if [[ "${{ matrix.target }}" == "macosx-x86_64" ]]; then
+            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:amd64 src/${{ env.PROJECT_NAME }}.nim
+          elif [[ "${{ matrix.target }}" == "macosx-aarch64" ]]; then
+            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release --cpu:arm64 src/${{ env.PROJECT_NAME }}.nim
+          else
+            nim c --out:bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} -d:release src/${{ env.PROJECT_NAME }}.nim
+          fi
+
+      - name: Package the binary
+        shell: bash
+        run: |
+          mkdir -p release
+          cp bin/${{ env.PROJECT_NAME }}${{ matrix.ext }} release/${{ env.PROJECT_NAME }}-${{ matrix.target }}${{ matrix.ext }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-${{ matrix.target }}
+          path: release/
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Debug artifacts directory
+        run: ls -R artifacts # 调试：列出 artifacts 目录内容
+
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            version=${GITHUB_REF#refs/tags/}
+            echo "Extracted version: $version"
+            echo "version=$version" >> $GITHUB_OUTPUT
+          else
+            echo "No tag found, using default version"
+            echo "version=0.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get current date
+        id: get_date
+        run: |
+          current_date=$(date -u +"%Y-%m-%d")
+          echo "Current date: $current_date"
+          echo "date=$current_date" >> $GITHUB_OUTPUT
+
+      - name: Create Release via GitHub API
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name=${GITHUB_REF#refs/tags/}
+          release_name="Release $tag_name"
+          response=$(curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/$GITHUB_REPOSITORY/releases \
+            -d "{
+              \"tag_name\": \"$tag_name\",
+              \"name\": \"$release_name\",
+              \"draft\": false,
+              \"prerelease\": false
+            }")
+          upload_url=$(echo "$response" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
+
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          upload_url=${{ steps.create_release.outputs.upload_url }}
+          for target in linux windows macosx-x86_64 macosx-aarch64; do
+            if [ "$target" == "windows" ]; then
+              asset_path="artifacts/nim_project_arena-$target/nim_project_arena.exe"
+            else
+              asset_path="artifacts/nim_project_arena-$target/nim_project_arena"
+            fi
+
+            if [ -f "$asset_path" ]; then
+              asset_name="nim_project_arena-${{ steps.extract_version.outputs.version }}-${{ steps.get_date.outputs.date }}-$target"
+              if [ "$target" == "windows" ]; then
+                asset_name="$asset_name.exe"
+              fi
+
+              echo "Uploading $asset_path as $asset_name"
+              curl -s -X POST \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @$asset_path \
+                "$upload_url?name=$asset_name"
+            else
+              echo "Warning: File $asset_path does not exist. Skipping upload for $target."
+            fi
+          done
