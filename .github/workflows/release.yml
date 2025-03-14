@@ -107,6 +107,7 @@ jobs:
               \"draft\": false,
               \"prerelease\": false
             }")
+          echo "API Response: $response"
           upload_url=$(echo "$response" | jq -r '.upload_url' | sed 's/{.*}//')
           echo "Extracted upload_url: $upload_url"
           echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
