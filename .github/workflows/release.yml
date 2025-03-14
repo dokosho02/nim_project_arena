@@ -36,6 +36,7 @@ jobs:
           nim-version: "2.0.0" # 指定 Nim 版本
 
       - name: Build the project
+        shell: bash
         run: |
           # 针对 macOS 区分架构
           if [[ "${{ matrix.target }}" == "macosx-x86_64" ]]; then
